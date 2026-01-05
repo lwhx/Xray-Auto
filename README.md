@@ -104,6 +104,7 @@ After installation is complete, the script will automatically output connection 
 
 ### ⚠️ 免责声明 | Disclaimer
 This script is for educational and research purposes only. The author is not responsible for any consequences arising from the use of this script. Please comply with local laws and regulations.
+
 本脚本仅供学习、测试和科研使用。作者不对使用本脚本产生的任何后果负责。请遵守当地法律法规。
 
 [Project maintained by accforeve](https://github.com/accforeve)
