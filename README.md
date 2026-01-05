@@ -1,37 +1,87 @@
 # Xray Auto Installer
 
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/accforeve/Xray-Auto?style=flat-square&color=success" alt="Version">
-  <img src="https://img.shields.io/github/license/accforeve/Xray-Auto?style=flat-square&color=blue" alt="License">
-  <img src="https://img.shields.io/badge/Protocol-VLESS%2BReality%2BVision-blueviolet?style=flat-square" alt="Protocol">
-  <img src="https://img.shields.io/badge/Language-Bash-green?style=flat-square" alt="Language">
-</p>
+> 🚀 **VLESS + Reality + Vision + Intelligent SNI + System Optimization** > 一个轻量级、自动化、高稳定性的 Xray 部署脚本。
 
-> **极简、健壮、智能的 Xray 一键安装脚本**。
-> 专为 Debian / Ubuntu 打造，集成最新的 VLESS-Reality-Vision 协议，完美支持 IPv4/IPv6 双栈环境。
+![License](https://img.shields.io/github/license/accforeve/Xray-Auto)
+![Version](https://img.shields.io/badge/version-v0.6.1-green)
+![Shell](https://img.shields.io/badge/language-Bash-blue)
 
-## ✨ 核心特性 (Features)
+## 📖 简介 | Introduction
 
-* **🔒 顶级协议**: 默认部署 **VLESS + XTLS-rprx-vision + Reality**，目前最先进的抗封锁组合，隐蔽性极强。
-* **🌐 双栈兼容**: 完美支持 **IPv4 / IPv6** 单栈或双栈服务器。脚本会自动识别 IP 类型并在 VLESS 链接中自动适配格式（IPv6 自动添加 `[]`）。
-* **🛡️ 安全加固**:
-    * 内置 **双栈防火墙 (iptables + ip6tables)**，默认拒绝所有入站连接，仅放行 SSH 和业务端口。
-    * 自动配置 **Fail2Ban**，防御 SSH 暴力破解。
-* **⚡ 智能优选**: 安装时自动测试并筛选低延迟的大厂目标域名 (SNI)，无需人工干预。
-* **🛠️ 极度健壮 (Robust)**:
-    * **时间同步前置**: 在安装依赖前强制同步系统时间，彻底解决因时间偏差导致的 SSL 证书验证失败问题。
-    * **智能锁清理**: 采用精准打击 (`fuser`) + 全局兜底 (`killall`) 策略，自动修复 `dpkg/apt` 被锁或卡死的问题。
-    * **内存保护**: 检测到内存不足 2GB 时，自动创建 1GB Swap 交换分区，防止 OOM。
-* **🔧 纯净安装**: 移除 `net-tools` 等冗余依赖，全部采用 Linux 原生指令 (`ss`, `ip`, `fuser`)，系统更干净。
+本项目是一个专为 **Debian / Ubuntu** 系统设计的 Xray 自动化安装脚本。它采用目前最先进的 **VLESS + Reality + Vision** 协议组合，并集成了多项系统级优化和安全防护功能。
 
-## 📥 一键安装 (Installation)
+**版本亮点 (v0.6.1 TimeFirst):**
+针对部分 VPS 系统时间偏差导致 `apt update` 或 SSL 握手失败的问题，重构了初始化流程。脚本会**优先**执行强制时间同步（通过 Google HTTP 头校准），确保后续依赖安装的稳定性。
 
-**系统要求**: Debian 10+ / Ubuntu 20.04+ (推荐 Debian 12)
-**权限要求**: 请使用 `root` 用户执行。
+## ✨ 功能特性 | Features
+
+* **⚡ 顶级协议架构**: 部署 VLESS + Reality + Vision (xtls-rprx-vision)，抗封锁能力极强。
+* **🌐 智能 SNI 优选**: 自动测试并筛选连接延迟最低的伪装域名（支持 Microsoft, Apple, Bing 等大厂域名），显著提升连接速度。
+* **🛡️ 全方位安全防护**:
+    * 集成 `Fail2ban` 防暴力破解。
+    * 配置双栈防火墙（IPv4 + IPv6），仅放行必要端口。
+    * 自动处理端口占用冲突。
+* **⚙️ 系统深度优化**:
+    * 开启 BBR 拥塞控制。
+    * 自动检测内存，若不足 2GB 自动创建 Swap 交换分区。
+    * 优化 TCP 连接参数与文件描述符限制。
+* **🛠️ 便捷管理工具**:
+    * 内置 `mode` 命令：一键切换 **[阻断回国]** / **[允许回国]** 流量策略。
+    * 自动配置 GeoIP/GeoSite 定时更新任务。
+    * 提供美观的终端输出与二维码展示。
+
+## 💻 环境要求 | Requirements
+
+* **OS**: Debian 10+ / Ubuntu 20.04+
+* **Root**: 需要 root 权限运行
+* **Network**: 正常的互联网连接
+
+## 🚀 快速开始 | Quick Start
+
+使用 `root` 用户登录服务器，执行以下命令即可开始安装：
 
 ```bash
-bash <(curl -Ls [https://raw.githubusercontent.com/accforeve/Xray-Auto/main/install.sh](https://raw.githubusercontent.com/accforeve/Xray-Auto/main/install.sh))
+wget -N [https://raw.githubusercontent.com/accforeve/Xray-Auto/main/install.sh](https://raw.githubusercontent.com/accforeve/Xray-Auto/main/install.sh) && bash install.sh
 
-📜 License
-本项目基于 MIT License 开源。
+## 🎮 常用指令 | Commands
 
+脚本安装完成后，提供了一些快捷指令用于日常管理：
+
+### 🔄 流量模式切换 (Mode Switch)
+控制是否允许流量访问中国大陆 IP（防误连回国，或按需开启）。
+
+```bash
+# 查看当前模式状态
+mode
+
+# 切换模式 [阻断回国] <-> [允许回国]
+mode c
+
+# 🗑️ 卸载脚本 (Uninstall)
+彻底清除 Xray 服务、配置文件、计划任务及相关防火墙规则。
+xray-uninstall
+
+# 查看 Xray 运行状态
+systemctl status xray
+
+# 重启 Xray 服务
+systemctl restart xray
+
+# 查看实时日志
+journalctl -u xray -f
+
+## 📝 配置说明 | Configuration Details
+
+安装结束后，脚本会自动输出连接信息，包含：
+* VLESS 链接：可直接复制导入客户端（如 v2rayN, V2Box, Shadowrocket 等）。
+* 二维码：手机扫码直连。
+* 配置文件路径：`/usr/local/etc/xray/config.json`
+
+## ⚠️ 免责声明 | Disclaimer
+
+* 本项目仅供学习、技术研究及科研使用。
+* 请勿用于任何违反当地法律法规的用途。
+* 使用本脚本产生的任何后果由用户自行承担。
+
+---
+Project maintained by [accforeve](https://github.com/accforeve)
