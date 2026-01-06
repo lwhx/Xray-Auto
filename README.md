@@ -11,9 +11,9 @@
 ## 🇨🇳 中文说明
 这是一个全自动化的 Xray 部署脚本，基于 **VLESS + Reality-Vision/(xhttp)** 顶尖流控协议。专为 Debian 和 Ubuntu 系统设计，提供极致的性能优化与安全防护。
 
-* 版本: v0.1 Final
+* 版本: v0.2
 * 核心: Xray-core (VLESS + Reality)
-* 协议: TCP-Vision (主力) + xhttp (备用)(v0.2+)
+* 协议: TCP-Vision (主力) + xhttp (备用)
  
 ### ✨ 核心功能
 
@@ -88,9 +88,9 @@ bash <(curl -sL https://raw.githubusercontent.com/accforeve/Xray-Auto/main/remov
 ## 🇺🇸 English Description
 An advanced, fully automated deployment script for Xray, featuring VLESS + Reality-Vision. Designed for performance, security, and ease of use on Debian and Ubuntu systems.
 
-* Version: v0.1
+* Version: v0.2
 * Core: Xray-core (VLESS + Reality)  
-* Protocols: TCP-Vision (Primary) + xhttp (Secondary/Fallback)（v0.2+)
+* Protocols: TCP-Vision (Primary) + xhttp (Secondary/Fallback)
 
 ### ✨ Key Features
  * ⚡️ Cutting-edge Protocol: Deploys VLESS + Reality-Vision/xhttp flow control.
