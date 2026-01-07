@@ -149,8 +149,8 @@ bash <(curl -sL https://github.com/realfanzhongyan/Xray-Auto/raw/main/remove.sh)
 After installation, use the following commands:
 | Command | Description |
 |---|---|
-| mode | Check current routing status (Block/Allow CN) |
-| Info | Retrieves node configuration, VLESS links, and QR codes|
+| `mode` | Check current routing status (Block/Allow CN) |
+| `info` | Retrieves node configuration, VLESS links, and QR codes|
 
 ### 📝 Configuration Details
 After installation is complete, the script will automatically output connection information, including:
