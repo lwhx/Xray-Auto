@@ -20,7 +20,7 @@
 * **⚡️ 极速协议**: 部署最新的 VLESS + Reality-Vision/xhttp 流控组合。
 * **🧠 智能 SNI 优选**: 自动测试并选择延迟最低的大厂域名（Apple, Microsoft 等）作为伪装目标，拒绝卡顿。
 * **🛡️ 独家防火墙策略**: 采用 **白名单模式** (Whitelist)，默认拒绝所有非必要端口，隐藏服务器指纹。
-* **🔄 一键回国模式切换与信息回显**: 独有的 `mode` 指令，支持一键切换 **阻断回国 (Block CN)** 或 **允许回国 (Allow CN)** 流量。'info' 指令：回显配置、VLESS, 二维码信息。
+* **🔄 一键回国模式切换与信息回显**: 独有的 `mode` 指令，支持一键切换 **阻断回国 (Block CN)** 或 **允许回国 (Allow CN)** 流量。`info` 指令：回显配置、VLESS, 二维码信息。
 * **⚙️ 系统深度优化**: 
     * 自动开启 BBR + FQ 加速。
     * 智能 Swap 管理（内存 < 2G 时自动创建 1G Swap）。
@@ -91,7 +91,7 @@ An advanced, fully automated deployment script for Xray, featuring VLESS + Reali
  * ⚡️ Cutting-edge Protocol: Deploys VLESS + Reality-Vision/xhttp flow control.
  * 🧠 Intelligent SNI Selection: Automatically pings and selects the fastest domain (e.g., Apple, Microsoft) for camouflage to ensure stability.
  * 🛡️ Advanced Security: Uses iptables Whitelist Mode by default, blocking all unauthorized ports to hide server fingerprint.
- * 🔄 One-Key Routing Switch: Exclusive 'mode' command to toggle between Block CN (Block China Traffic) and Allow CN (Allow China Traffic). The 'info' command displays configuration details, VLESS links, and QR codes.
+ * 🔄 One-Key Routing Switch: Exclusive 'mode' command to toggle between Block CN (Block China Traffic) and Allow CN (Allow China Traffic). The `info` command displays configuration details, VLESS links, and QR codes.
 
  * ⚙️ System Optimization:
    * Enables BBR + FQ congestion control.
