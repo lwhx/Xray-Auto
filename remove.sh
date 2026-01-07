@@ -1,6 +1,8 @@
 #!/bin/bash
 # ==============================================================
 # Project: Xray Uninstaller
+# Author: realfanzhongyan
+# Repository: https://github.com/realfanzhongyan/Xray-Auto
 # Description: Remove Xray, Configs, and related tools
 # ==============================================================
 
