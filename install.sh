@@ -368,5 +368,6 @@ chmod +x /usr/local/bin/info
 # 完成
 bash /usr/local/bin/info
 echo -e ""
-echo -e "🎉 安装完成！"
-echo -e "💡 命令: info (查看信息) | mode (切换模式)"
+echo -e "🎉 \033[32m安装完成！\033[0m"
+echo -e "💡 命令：\033[33minfo\033[0m (查看信息) | \033[33mmode\033[0m (切换模式)"
+
