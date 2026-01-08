@@ -12,12 +12,12 @@ BG_RED="\033[41;37m"; BG_YELLOW="\033[43;30m"
 
 # --- 系统环境强制检查 ---
 if [ ! -f /etc/debian_version ]; then
-    echo -e "\033[31mError: 本脚本仅支持 Debian 或 Ubuntu 系统！CentOS/RedHat 请勿运行。\033[0m"
+    echo -e "\${RED}❌ 错误：本脚本仅支持 Debian 或 Ubuntu 系统！CentOS/RedHat 请勿运行。${PLAIN}"
     exit 1
 fi
 
 if [[ $EUID -ne 0 ]]; then
-    echo "\033[31mError: This script must be run as root!\033[0m"
+    echo "${RED}❌ 错误：请使用 root 权限运行此脚本。${PLAIN}"
     exit 1
 fi
 
