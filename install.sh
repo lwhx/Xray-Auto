@@ -1,4 +1,11 @@
 #!/bin/bash
+# ==============================================================
+# Project: Xray Auto Installer
+# Author: ISFZY
+# Repository: https://github.com/ISFZY/Xray-Auto
+# Version: 0.4 VLESS+reality-Vision/xhttp
+# ==============================================================
+
 # --- 1. 全局配置与 UI 定义 ---
 RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; PURPLE="\033[35m"; PLAIN="\033[0m"
 BG_RED="\033[41;37m"; BG_GREEN="\033[42;37m"
