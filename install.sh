@@ -1,232 +1,250 @@
 #!/bin/bash
-# ==============================================================
-# Project: Xray-Auto Installer
-# Author: ISFZY
-# Repository: https://github.com/ISFZY/Xray-Auto
-# Version: v0.3 VLESS+reality-Vision/xhttp
-# ==============================================================
+# --- 1. 全局配置与 UI 定义 ---
+RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; PURPLE="\033[35m"; PLAIN="\033[0m"
+BG_RED="\033[41;37m"; BG_GREEN="\033[42;37m"
+ICON_OK="✅"; ICON_ERR="❌"; ICON_WARN="⚠️"; ICON_WAIT="⏳"
 
-# --- 全局颜色定义 ---
-RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; PLAIN="\033[0m"
-BG_RED="\033[41;37m"; BG_YELLOW="\033[43;30m"
+# 动画函数
+run_with_spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    echo -ne "  "
+    while [ "$(ps -p $pid -o pid=)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
 
-# --- 系统环境强制检查 ---
-if [ ! -f /etc/debian_version ]; then
-    echo -e "\${RED}❌ 错误：本脚本仅支持 Debian 或 Ubuntu 系统！CentOS/RedHat 请勿运行。${PLAIN}"
-    exit 1
-fi
+print_banner() {
+    clear
+    echo -e "${BLUE}============================================================${PLAIN}"
+    echo -e "${BLUE}            __   __  ______    _______  __   __             ${PLAIN}"
+    echo -e "${BLUE}           |  |_|  ||    _ |  |   _   ||  | |  |            ${PLAIN}"
+    echo -e "${BLUE}           |       ||   | ||  |  |_|  ||  |_|  |            ${PLAIN}"
+    echo -e "${BLUE}           |       ||   |_||_ |       ||       |            ${PLAIN}"
+    echo -e "${BLUE}           |     | |    __  ||       ||_     _|             ${PLAIN}"
+    echo -e "${BLUE}           |   _   ||   |  | ||   _   |  |   |              ${PLAIN}"
+    echo -e "${BLUE}           |__| |__||___|  |_||__| |__|  |___|              ${PLAIN}"
+    echo -e "${BLUE}============================================================${PLAIN}"
+    echo -e "${YELLOW}                     Xray-Auto v0.4                       ${PLAIN}"
+    echo -e "${BLUE}============================================================${PLAIN}\n"
+}
 
-if [[ $EUID -ne 0 ]]; then echo -e "${RED}Error: 请使用 root 权限!${PLAIN}"; exit 1; fi
+# --- 2. 基础检查与网络侦测 ---
+if [[ $EUID -ne 0 ]]; then echo -e "${RED}${ICON_ERR} Error: 请使用 root 权限运行!${PLAIN}"; exit 1; fi
+if [ ! -f /etc/debian_version ]; then echo -e "${RED}${ICON_ERR} 仅支持 Debian/Ubuntu 系统!${PLAIN}"; exit 1; fi
 
-# --- 核心工具：动态倒计时 ---
-# 返回: 0=使用默认(超时或按回车), 1=手动修改(按其他键)
+pre_flight_check() {
+    if ! dpkg --audit >/dev/null 2>&1; then
+        echo -e "${YELLOW}${ICON_WARN} 检测到 apt 锁死或损坏，正在尝试自愈...${PLAIN}"
+        rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock*
+        dpkg --configure -a >/dev/null 2>&1
+        echo -e "${GREEN}${ICON_OK} 修复完成。${PLAIN}"
+    fi
+}
+
+check_net_stack() {
+    HAS_V4=false; HAS_V6=false; CURL_OPT=""
+    if curl -s4m 2 https://1.1.1.1 >/dev/null 2>&1; then HAS_V4=true; fi
+    if curl -s6m 2 https://2606:4700:4700::1111 >/dev/null 2>&1; then HAS_V6=true; fi
+
+    if [ "$HAS_V4" = true ] && [ "$HAS_V6" = true ]; then
+        NET_TYPE="Dual-Stack (双栈)"; CURL_OPT="-4"; DOMAIN_STRATEGY="IPIfNonMatch"
+    elif [ "$HAS_V4" = true ]; then
+        NET_TYPE="IPv4 Only"; CURL_OPT="-4"; DOMAIN_STRATEGY="UseIPv4"
+    elif [ "$HAS_V6" = true ]; then
+        NET_TYPE="IPv6 Only"; CURL_OPT="-6"; DOMAIN_STRATEGY="UseIPv6"
+    else
+        echo -e "${RED}${ICON_ERR} 无法连接互联网，请检查网络！${PLAIN}"; exit 1
+    fi
+    echo -e "${GREEN}${ICON_OK} 网络环境检测: ${NET_TYPE}${PLAIN}"
+}
+
+set_sysctl() {
+    local param=$1; local value=$2
+    if grep -q "^$param" /etc/sysctl.conf; then
+        sed -i "s|^$param.*|$param=$value|" /etc/sysctl.conf
+    else
+        echo "$param=$value" >> /etc/sysctl.conf
+    fi
+}
+
 wait_with_countdown() {
-    local seconds=$1
-    local message=$2
-    
-    # 清除输入缓存
+    local seconds=$1; local message=$2
     read -t 0.1 -n 10000 discard 2>/dev/null
-    
     for ((i=seconds; i>0; i--)); do
-        # 动态刷新显示
-        echo -ne "\r${YELLOW}👉 ${message} [Enter快进 / 其他键修改] (默认: ${BG_RED} ${i} ${PLAIN}${YELLOW}s) ${PLAIN}"
-        
-        # 检测按键 (-s不回显, -n1读一个字符, -t1超时1秒)
-        # 注意: IFS= 防止 read 去除空格
+        echo -ne "\r${PURPLE}👉 ${message} [Enter 快进 / 其他键修改] ${PLAIN}(默认: ${BG_RED} ${i} ${PLAIN}${PURPLE}s) ${PLAIN}"
         if IFS= read -t 1 -s -n 1 key; then
-            # 如果 key 为空 (直接回车) -> 0 (默认)
-            if [[ -z "$key" ]]; then
-                echo -e "\n⏩ 已按 Enter，立即使用默认值。"
-                return 0
-            else
-                echo -e "\n✅ 切换为手动输入模式..."
-                return 1
-            fi
+            if [[ -z "$key" ]]; then echo -e "\n⏩ 使用默认配置。"; return 0;
+            else echo -e "\n✏️  切换为手动输入..."; return 1; fi
         fi
     done
-    echo -e "\n✅ 倒计时结束，自动应用默认设置。"
+    echo -e "\n✅ 倒计时结束，应用默认。"
     return 0
 }
 
-# --- 0. 强力预检与修复 ---
-pre_flight_check() {
-    if ! dpkg --audit >/dev/null 2>&1; then
-        echo -e "${BG_RED} ⚠️  检测到系统数据库损坏，正在自愈... ${PLAIN}"
-        killall apt apt-get dpkg 2>/dev/null
-        rm -f /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock*
-        rm -rf /var/lib/dpkg/updates/*
-        dpkg --configure -a
-        apt-get clean && apt-get update -qq
-        echo -e "${GREEN}✅ 修复完成。${PLAIN}\n"
-    fi
-}
+# --- 3. 配置阶段 ---
+print_banner
+pre_flight_check
+check_net_stack
+
+echo -e "${BLUE}--- ⚙️  端口配置 ---${PLAIN}"
+SSH_CURRENT_PORT=$(echo $SSH_CLIENT | awk '{print $3}')
+SSH_CONFIG_PORT=$(grep "^Port" /etc/ssh/sshd_config | head -n 1 | awk '{print $2}')
+DEF_SSH=${SSH_CURRENT_PORT:-${SSH_CONFIG_PORT:-22}}
+
+if wait_with_countdown 9 "确认 SSH 管理端口 [${DEF_SSH}]"; then SSH_PORT=$DEF_SSH; else read -p "   请输入 SSH 端口: " U_SSH; SSH_PORT=${U_SSH:-$DEF_SSH}; fi
+
+DEF_V=443
+if wait_with_countdown 9 "确认 Vision 端口 (TCP) [${DEF_V}]"; then PORT_VISION=$DEF_V; else read -p "   输入 Vision 端口: " t; PORT_VISION=${t:-$DEF_V}; fi
+
+DEF_X=8443
+if wait_with_countdown 9 "确认 xhttp 端口 [${DEF_X}]"; then PORT_XHTTP=$DEF_X; else read -p "   输入 xhttp 端口: " t; PORT_XHTTP=${t:-$DEF_X}; fi
+
 
 clear
-echo -e "${GREEN}🚀 开始部署 v0.3 ...${PLAIN}"
+echo -e "${BLUE}🚀 开始全自动化部署...${PLAIN}"
 
-pre_flight_check
-if ! command -v ss >/dev/null 2>&1; then apt-get install -y iproute2 net-tools >/dev/null; fi
-
-# ==============================================================
-# 1. 统一端口管理器
-# ==============================================================
-echo -e "\n${BLUE}==========================================================${PLAIN}"
-echo -e "${BLUE}    ⚙️  全局端口配置 (按 Enter 快速确认默认值)${PLAIN}"
-echo -e "${BLUE}==========================================================${PLAIN}"
-
-# --- SSH 端口 ---
-SSH_CONF=$(grep "^Port" /etc/ssh/sshd_config | head -n 1 | awk '{print $2}')
-SSH_PROC=$(ss -tlnp | grep sshd | grep LISTEN | head -n 1 | awk '{print $4}' | sed 's/.*://')
-DEF_SSH=${SSH_PROC:-${SSH_CONF:-22}}
-
-echo -e "\n${YELLOW}[1/3] SSH 管理端口${PLAIN}"
-if wait_with_countdown 10 "确认 SSH 端口 [${DEF_SSH}]"; then
-    SSH_PORT=$DEF_SSH
-else
-    read -p "   ✏️  请输入新的 SSH 端口: " U_SSH
-    SSH_PORT=${U_SSH:-$DEF_SSH}
-fi
-echo -e "   ✅ 最终 SSH: ${BLUE}${SSH_PORT}${PLAIN}"
-
-# --- Vision 端口 ---
-DEF_V=443
-echo -e "\n${YELLOW}[2/3] Vision 节点端口 (TCP)${PLAIN}"
-ss -tuln | grep -q ":${DEF_V} " && echo -e "   当前状态: ${BG_RED} 被占用 ${PLAIN}" || echo -e "   当前状态: ${GREEN} 空闲 ${PLAIN}"
-
-if wait_with_countdown 10 "确认 Vision 端口 [${DEF_V}]"; then
-    PORT_VISION=$DEF_V
-else
-    read -p "   ✏️  请输入 Vision 端口: " U_V
-    PORT_VISION=${U_V:-$DEF_V}
-fi
-echo -e "   ✅ 最终 Vision: ${BLUE}${PORT_VISION}${PLAIN}"
-
-# --- xhttp 端口 ---
-DEF_X=8443
-echo -e "\n${YELLOW}[3/3] xhttp 节点端口${PLAIN}"
-ss -tuln | grep -q ":${DEF_X} " && echo -e "   当前状态: ${BG_RED} 被占用 ${PLAIN}" || echo -e "   当前状态: ${GREEN} 空闲 ${PLAIN}"
-
-if wait_with_countdown 10 "确认 xhttp 端口 [${DEF_X}]"; then
-    PORT_XHTTP=$DEF_X
-else
-    read -p "   ✏️  请输入 xhttp 端口: " U_X
-    PORT_XHTTP=${U_X:-$DEF_X}
-fi
-echo -e "   ✅ 最终 xhttp: ${BLUE}${PORT_XHTTP}${PLAIN}"
-
-echo -e "\n配置已锁定，准备安装..."
-sleep 1
-
-# ==============================================================
-# 2. 系统安装
-# ==============================================================
-echo "📦 更新系统并安装依赖..."
+# --- 1. 系统初始化 ---
 timedatectl set-timezone Asia/Shanghai
 export DEBIAN_FRONTEND=noninteractive
-DEPS="curl wget sudo nano git htop tar unzip socat fail2ban rsyslog chrony iptables qrencode iptables-persistent"
 
-if ! apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" $DEPS; then
-    pre_flight_check
-    if ! apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" $DEPS; then
-        echo -e "${RED}❌ 依赖安装失败。${PLAIN}"; exit 1
-    fi
+# 强制抑制 "Service Restart" 粉色弹窗
+if [ -f /etc/needrestart/needrestart.conf ]; then
+    sed -i "s/#\$nrconf{restart} = 'i';/\$nrconf{restart} = 'a';/" /etc/needrestart/needrestart.conf
 fi
 
-echo iptables-persistent iptables-persistent/autosave_v4 boolean true | debconf-set-selections
-echo iptables-persistent iptables-persistent/autosave_v6 boolean true | debconf-set-selections
+echo -ne "${BLUE}📦 更新系统并安装依赖 ${PLAIN}(此过程可能需要几分钟)..."
 
-# 3. 优化
+(
+    # apt 更新命令 (静默执行)
+    apt-get update -qq >/dev/null 2>&1
+    apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade >/dev/null 2>&1
+    
+    # 安装核心依赖 (静默执行)
+    DEPENDENCIES="curl wget sudo nano git htop tar unzip socat fail2ban rsyslog chrony iptables qrencode"
+    apt-get install -y $DEPENDENCIES >/dev/null 2>&1
+) &
+
+# 运行动画，直到上面的任务结束
+run_with_spinner $!
+echo -e "${GREEN} 完成${PLAIN}"
+
+# 二次检查
+if ! command -v fail2ban-client &> /dev/null; then
+    echo -e "\n\033[31m❌ 严重错误：软件安装失败。可能是网络源问题，请重试。\033[0m"
+    exit 1
+fi
+
+# 安装 Xray
+echo -e "${GREEN}   🚀 下载并安装 Xray Core...${PLAIN}"
+bash -c "$(curl -L $CURL_OPT https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+
+echo -e "${GREEN} Xray 安装完成${PLAIN}"
+
+mkdir -p /usr/local/share/xray/
+wget -q $CURL_OPT -O /usr/local/share/xray/geoip.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+wget -q $CURL_OPT -O /usr/local/share/xray/geosite.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+
+# --- 2. 防火墙 ---
+add_rule() {
+    local port=$1; local v4=$2; local v6=$3
+    if [ "$v4" = true ]; then
+        if ! iptables -C INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null; then
+            iptables -A INPUT -p tcp --dport $port -j ACCEPT; iptables -A INPUT -p udp --dport $port -j ACCEPT; fi
+    fi
+    if [ "$v6" = true ] && [ -f /proc/net/if_inet6 ]; then
+        if ! ip6tables -C INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null; then
+            ip6tables -A INPUT -p tcp --dport $port -j ACCEPT; ip6tables -A INPUT -p udp --dport $port -j ACCEPT; fi
+    fi
+}
+add_rule $SSH_PORT $HAS_V4 $HAS_V6
+add_rule $PORT_VISION $HAS_V4 $HAS_V6
+add_rule $PORT_XHTTP $HAS_V4 $HAS_V6
+netfilter-persistent save >/dev/null 2>&1
+
+cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1
+bantime = 24h
+findtime = 1d
+maxretry = 3
+backend = systemd
+[sshd]
+enabled = true
+port = $SSH_PORT,22
+mode = aggressive
+EOF
+systemctl restart fail2ban >/dev/null 2>&1
+
+# 确保服务启动
+systemctl restart rsyslog || echo "Rsyslog restart skipped"
+systemctl enable fail2ban >/dev/null 2>&1
+systemctl restart fail2ban
+
+echo -n "   🛠️  执行内核调优 (BBR + Swap)..."
+set_sysctl "net.core.default_qdisc" "fq"
+set_sysctl "net.ipv4.tcp_congestion_control" "bbr"
+sysctl -p >/dev/null 2>&1
 if [ "$(free -m | grep Mem | awk '{print $2}')" -lt 2048 ] && [ "$(swapon --show | wc -l)" -lt 2 ]; then
     fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
-    chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile >/dev/null
+    grep -q "/swapfile" /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
-if ! grep -q "tcp_congestion_control=bbr" /etc/sysctl.conf; then
-    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    sysctl -p >/dev/null 2>&1
-fi
+echo -e "${GREEN} 完成${PLAIN}"
 
-# 4. 安装 Xray
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
-mkdir -p /usr/local/share/xray/
-wget -q -O /usr/local/share/xray/geoip.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
-wget -q -O /usr/local/share/xray/geosite.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
-
-# ==============================================================
-# 5. 智能 SNI 优选
-# ==============================================================
-echo -e "\n${BLUE}==========================================================${PLAIN}"
-echo -e "${BLUE}    🔍  智能 SNI 伪装域优选 (Smart SNI Selection)${PLAIN}"
-echo -e "${BLUE}==========================================================${PLAIN}"
-
-DOMAINS=("www.icloud.com" "www.apple.com" "itunes.apple.com" "learn.microsoft.com" "www.microsoft.com" "www.bing.com" "www.tesla.com")
-BEST_MS=9999
-BEST_INDEX=0
-
-echo -e "正在测试握手延迟..."
-# 使用 %-10s 而不是 %-10b
-printf "%-4s %-22s %-10s\n" "ID" "Domain" "Latency"
-echo "----------------------------------------"
-
+# --- 3. 智能 SNI 优选 ---
+echo -e "\n${BLUE}--- 🔍 智能 SNI 伪装域优选 ---${PLAIN}"
+DOMAINS=("www.icloud.com" "www.apple.com" "itunes.apple.com" "learn.microsoft.com" "www.bing.com" "www.tesla.com")
+BEST_MS=9999; BEST_INDEX=0
+printf "${BG_GREEN} %-4s %-25s %-12s ${PLAIN}\n" "ID" "Domain" "Latency"
 for i in "${!DOMAINS[@]}"; do
     domain="${DOMAINS[$i]}"
-    time_cost=$(LC_NUMERIC=C curl -4 -w "%{time_connect}" -o /dev/null -s --connect-timeout 2 "https://$domain")
-    
+    time_cost=$(LC_NUMERIC=C curl $CURL_OPT -w "%{time_connect}" -o /dev/null -s --connect-timeout 2 "https://$domain")
     if [ -n "$time_cost" ] && [ "$time_cost" != "0.000" ]; then
         ms=$(LC_NUMERIC=C awk -v t="$time_cost" 'BEGIN { printf "%.0f", t * 1000 }')
-    else
-        ms="Timeout"
-    fi
-    
-    if [ "$ms" == "Timeout" ]; then
-        printf "%-4s %-22s %-10b\n" "$((i+1))" "$domain" "${RED}Timeout${PLAIN}"
-    else
-        printf "%-4s %-22s %-10b\n" "$((i+1))" "$domain" "${GREEN}${ms}ms${PLAIN}"
+        color=$GREEN
+        if [ "$ms" -gt 200 ]; then color=$YELLOW; fi
         if [ "$ms" -lt "$BEST_MS" ]; then BEST_MS=$ms; BEST_INDEX=$((i+1)); fi
+        printf " %-4s %-25s ${color}%-8s${PLAIN}\n" "$((i+1))" "$domain" "${ms}ms"
+    else
+        printf " %-4s %-25s ${RED}%-8s${PLAIN}\n" "$((i+1))" "$domain" "Timeout"
     fi
 done
+DEFAULT_SNI=${DOMAINS[$((BEST_INDEX-1))]}
+echo -e "----------------------------------------------"
+if wait_with_countdown 9 "优选 SNI [${DEFAULT_SNI}]"; then SNI_HOST="$DEFAULT_SNI"; else
+    read -p "   请输入自定义 SNI: " SNI_IN; SNI_HOST="${SNI_IN:-$DEFAULT_SNI}"; fi
+echo -e "   ✅ 已选: ${GREEN}${SNI_HOST}${PLAIN}"
 
-if [ "$BEST_MS" == "9999" ]; then BEST_INDEX=1; fi
-DEFAULT_DOMAIN=${DOMAINS[$((BEST_INDEX-1))]}
-
-echo "----------------------------------------"
-echo -e "0   自定义输入 (Custom Input)"
-echo "----------------------------------------"
-echo -e "🚀 自动推荐: [${GREEN}${BEST_INDEX}${PLAIN}] ${DEFAULT_DOMAIN} (延迟最低)"
-
-if wait_with_countdown 10 "选择 SNI 序号 [推荐: ${BEST_INDEX}]"; then
-    SNI_HOST="$DEFAULT_DOMAIN"
-    echo -e "   ✅ 已自动选择: ${BLUE}${SNI_HOST}${PLAIN}"
-else
-    read -p "   ✏️  请输入选择 (0-${#DOMAINS[@]}): " SNI_CHOICE
-    
-    if [ -z "$SNI_CHOICE" ]; then
-        SNI_HOST="$DEFAULT_DOMAIN"
-    elif [ "$SNI_CHOICE" == "0" ]; then
-        read -p "   ✏️  请输入自定义域名: " CUSTOM_DOMAIN
-        SNI_HOST="${CUSTOM_DOMAIN:-$DEFAULT_DOMAIN}"
-    elif [[ "$SNI_CHOICE" =~ ^[0-9]+$ ]] && [ "$SNI_CHOICE" -ge 1 ] && [ "$SNI_CHOICE" -le "${#DOMAINS[@]}" ]; then
-        SNI_HOST="${DOMAINS[$((SNI_CHOICE-1))]}"
-    else
-        SNI_HOST="$DEFAULT_DOMAIN"
-    fi
-    echo -e "   ✅ 最终选择: ${BLUE}${SNI_HOST}${PLAIN}"
-fi
-
-# ==============================================================
-# 后续配置
-# ==============================================================
+# --- 生成配置 ---
 XRAY_BIN="/usr/local/bin/xray"
 UUID=$($XRAY_BIN uuid)
 KEYS=$($XRAY_BIN x25519)
-PRIVATE_KEY=$(echo "$KEYS" | grep "Private" | awk '{print $2}')
-PUBLIC_KEY=$(echo "$KEYS" | grep -E "Public|Password" | awk '{print $2}')
+
+# 1. 提取密钥
+PRIVATE_KEY=$(echo "$KEYS" | grep "Private" | awk '{print $NF}')
+PUBLIC_KEY=$(echo "$KEYS" | grep -E "Public|Password" | awk '{print $NF}')
+
+# 2. 生成随机参数
 SHORT_ID=$(openssl rand -hex 8)
-XHTTP_PATH="/req"
+XHTTP_PATH="/$(openssl rand -hex 4)"
+
+# 3. 验证变量是否生成成功
+if [[ -z "$UUID" || -z "$PRIVATE_KEY" || -z "$PUBLIC_KEY" ]]; then
+    echo -e "\033[31m❌ 错误：凭证生成不完整，请检查 Xray 是否安装成功。\033[0m"
+    exit 1
+fi
 
 mkdir -p /usr/local/etc/xray/
-cat > /usr/local/etc/xray/config.json <<CONFIG_EOF
+
+# --- 写入配置 ---
+cat > /usr/local/etc/xray/config.json <<EOF
 {
   "log": { "loglevel": "warning" },
   "dns": { "servers": [ "1.1.1.1", "8.8.8.8", "localhost" ] },
@@ -245,129 +263,128 @@ cat > /usr/local/etc/xray/config.json <<CONFIG_EOF
     }
   ],
   "outbounds": [ { "protocol": "freedom", "tag": "direct" }, { "protocol": "blackhole", "tag": "block" } ],
-  "routing": { "domainStrategy": "IPIfNonMatch", "rules": [ { "type": "field", "ip": [ "geoip:private", "geoip:cn" ], "outboundTag": "block" }, { "type": "field", "protocol": [ "bittorrent" ], "outboundTag": "block" } ] }
+  "routing": { "domainStrategy": "${DOMAIN_STRATEGY}", "rules": [ { "type": "field", "ip": [ "geoip:private", "geoip:cn" ], "outboundTag": "block" }, { "type": "field", "protocol": [ "bittorrent" ], "outboundTag": "block" } ] }
 }
-CONFIG_EOF
+EOF
 
 mkdir -p /etc/systemd/system/xray.service.d
-echo -e "[Service]\nLimitNOFILE=infinity\nLimitNPROC=infinity\nTasksMax=infinity\nRestart=on-failure\nRestartSec=5" > /etc/systemd/system/xray.service.d/override.conf
-systemctl daemon-reload
+echo -e "[Service]\nLimitNOFILE=infinity\nLimitNPROC=infinity\nTasksMax=infinity" > /etc/systemd/system/xray.service.d/override.conf
+systemctl daemon-reload >/dev/null
 
-iptables -F
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A INPUT -p icmp -j ACCEPT
-iptables -A INPUT -p tcp --dport "$SSH_PORT" -j ACCEPT
-if [ "$SSH_PORT" != "22" ]; then iptables -A INPUT -p tcp --dport 22 -j ACCEPT; fi
-iptables -A INPUT -p tcp -m multiport --dports ${PORT_VISION},${PORT_XHTTP} -j ACCEPT
-iptables -A INPUT -p udp -m multiport --dports ${PORT_VISION},${PORT_XHTTP} -j ACCEPT
-iptables -P INPUT DROP; iptables -P FORWARD DROP; iptables -P OUTPUT ACCEPT
-
-if [ -f /proc/net/if_inet6 ]; then
-    ip6tables -F
-    ip6tables -A INPUT -i lo -j ACCEPT
-    ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    ip6tables -A INPUT -p ipv6-icmp -j ACCEPT
-    ip6tables -A INPUT -p tcp --dport "$SSH_PORT" -j ACCEPT
-    if [ "$SSH_PORT" != "22" ]; then ip6tables -A INPUT -p tcp --dport 22 -j ACCEPT; fi
-    ip6tables -A INPUT -p tcp -m multiport --dports ${PORT_VISION},${PORT_XHTTP} -j ACCEPT
-    ip6tables -A INPUT -p udp -m multiport --dports ${PORT_VISION},${PORT_XHTTP} -j ACCEPT
-    ip6tables -P INPUT DROP; ip6tables -P FORWARD DROP; ip6tables -P OUTPUT ACCEPT
-fi
-netfilter-persistent save
-
-mkdir -p /etc/fail2ban
-cat > /etc/fail2ban/jail.local << FAIL2BAN_EOF
-[DEFAULT]
-ignoreip = 127.0.0.1/8 ::1
-findtime  = 1d
-maxretry = 3
-bantime  = 24h
-bantime.increment = true
-backend = systemd
-banaction = iptables-multiport
-[sshd]
-enabled = true
-port    = $SSH_PORT,22
-mode    = aggressive
-FAIL2BAN_EOF
-systemctl restart rsyslog; systemctl enable fail2ban; systemctl restart fail2ban
-
-# Mode & Info
+# --- 5. 生成工具脚本 (Info & Mode) ---
 cp /usr/local/etc/xray/config.json /usr/local/etc/xray/config_block.json
 sed 's/, "geoip:cn"//g' /usr/local/etc/xray/config_block.json > /usr/local/etc/xray/config_allow.json
-cat > /usr/local/bin/mode << 'MODE_EOF'
-#!/bin/bash
-GREEN='\033[32m'; RED='\033[31m'; WHITE='\033[37m'; PLAIN='\033[0m'
-CONFIG="/usr/local/etc/xray/config.json"
-BLOCK_CFG="/usr/local/etc/xray/config_block.json"
-ALLOW_CFG="/usr/local/etc/xray/config_allow.json"
-set_block() { cp "$BLOCK_CFG" "$CONFIG"; systemctl restart xray; echo -e "✅ 已切换为: ${GREEN}阻断回国 (Block CN)${PLAIN}"; }
-set_allow() { cp "$ALLOW_CFG" "$CONFIG"; systemctl restart xray; echo -e "✅ 已切换为: ${RED}允许回国 (Allow CN)${PLAIN}"; }
-if grep -q "geoip:cn" "$CONFIG"; then
-    OPT_1="${GREEN} 1. 阻断回国 (Block CN) [当前]${PLAIN}"
-    OPT_2="${WHITE} 2. 允许回国 (Allow CN)${PLAIN}"
-else
-    OPT_1="${WHITE} 1. 阻断回国 (Block CN)${PLAIN}"
-    OPT_2="${GREEN} 2. 允许回国 (Allow CN) [当前]${PLAIN}"
-fi
-clear
-echo "=============================="; echo "    Xray 模式切换 (Mode)"; echo "=============================="
-echo -e "$OPT_1"; echo -e "$OPT_2"; echo "------------------------------"
-read -p "请选择 [1-2] (输入其他任意键退出): " choice
-case "$choice" in 1) set_block ;; 2) set_allow ;; *) echo "已退出。"; exit 0 ;; esac
-MODE_EOF
-chmod +x /usr/local/bin/mode
-systemctl enable xray && systemctl restart xray
 
+# 1. 自动获取主机名
+HOST_NAME=$(hostname)
+
+# 2. Info 脚本
+# 写入静态变量头
 cat > /usr/local/bin/info <<EOF
 #!/bin/bash
 RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; PLAIN="\033[0m"
-UUID="${UUID}"; PUBLIC_KEY="${PUBLIC_KEY}"; SHORT_ID="${SHORT_ID}"; SNI_HOST="${SNI_HOST}"
-XHTTP_PATH="${XHTTP_PATH}"; SSH_PORT="${SSH_PORT}"
-PORT_VISION="${PORT_VISION}"; PORT_XHTTP="${PORT_XHTTP}"
 
-IPV4=\$(curl -s4m 5 https://1.1.1.1/cdn-cgi/trace | grep "ip=" | cut -d= -f2)
-if [ -z "\$IPV4" ]; then IPV4=\$(curl -s4m 5 https://api.ipify.org); fi
-HOST_TAG=\$(hostname | tr ' ' '.')
-[ -z "\$HOST_TAG" ] && HOST_TAG="XrayServer"
-
-LINK_VISION="vless://\${UUID}@\${IPV4}:\${PORT_VISION}?security=reality&encryption=none&pbk=\${PUBLIC_KEY}&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=\${SNI_HOST}&sid=\${SHORT_ID}#\${HOST_TAG}_Vision"
-LINK_XHTTP="vless://\${UUID}@\${IPV4}:\${PORT_XHTTP}?security=reality&encryption=none&pbk=\${PUBLIC_KEY}&headerType=none&fp=chrome&type=xhttp&path=\${XHTTP_PATH}&sni=\${SNI_HOST}&sid=\${SHORT_ID}#\${HOST_TAG}_xhttp"
-clear
-echo -e "\${GREEN}Xray 配置信息 (Xray Configuration)\${PLAIN}"
-echo "=========================================================="
-echo -e "\${YELLOW}代理配置:\${PLAIN}"
-echo "----------------------------------------------------------"
-echo -e "  地址 (IP)       : \${BLUE}\${IPV4}\${PLAIN}"
-echo -e "  优选 SNI        : \${YELLOW}\${SNI_HOST}\${PLAIN}"
-echo -e "  UUID            : \${BLUE}\${UUID}\${PLAIN}"
-echo -e "  Public Key      : \${BLUE}\${PUBLIC_KEY}\${PLAIN}"
-echo "----------------------------------------------------------"
-# 使用 printf 强行对齐
-printf "  节点 1 %-10s : 端口: \${BLUE}%-6s\${PLAIN} 协议: \${BLUE}TCP/Reality\${PLAIN}\n" "(Vision)" "\${PORT_VISION}"
-printf "  节点 2 %-10s : 端口: \${BLUE}%-6s\${PLAIN} 协议: \${BLUE}xhttp/Reality\${PLAIN} 路径: \${BLUE}\${XHTTP_PATH}\${PLAIN}\n" "(xhttp)" "\${PORT_XHTTP}"
-echo "----------------------------------------------------------"
-echo -e "  管理端口 (SSH)  : \${BLUE}\${SSH_PORT}\${PLAIN}"
-echo "----------------------------------------------------------"
-echo -e "\${YELLOW}👇 节点1 链接 (Vision):\${PLAIN}"
-echo -e "\${GREEN}\${LINK_VISION}\${PLAIN}"
-echo ""
-echo -e "\${YELLOW}👇 节点2 链接 (xhttp):\${PLAIN}"
-echo -e "\${GREEN}\${LINK_XHTTP}\${PLAIN}"
-echo "----------------------------------------------------------"
-echo -e "\${YELLOW}👇 节点1 二维码 (Vision):\${PLAIN}"
-qrencode -t ANSIUTF8 "\${LINK_VISION}"
-echo ""
-echo -e "\${YELLOW}👇 节点2 二维码 (xhttp):\${PLAIN}"
-qrencode -t ANSIUTF8 "\${LINK_XHTTP}"
-echo ""
+# --- 核心配置 ---
+UUID="${UUID}"
+PORT_VISION="${PORT_VISION}"
+PORT_XHTTP="${PORT_XHTTP}"
+SNI_HOST="${SNI_HOST}"
+SHORT_ID="${SHORT_ID}"
+XHTTP_PATH="${XHTTP_PATH}"
+PRIVATE_KEY="${PRIVATE_KEY}"
+PUBLIC_KEY="${PUBLIC_KEY}"
+HOST_NAME="${HOST_NAME}"
 EOF
+
+# 动态逻辑
+cat >> /usr/local/bin/info << 'SCRIPT_EOF'
+
+# --- 动态获取 IP ---
+IPV4=$(curl -s4m 2 https://api.ipify.org || curl -s4m 2 https://ifconfig.me)
+IPV6=$(curl -s6m 2 https://api64.ipify.org || curl -s6m 2 https://ifconfig.co)
+[ -z "$IPV4" ] && IPV4="无 IPv4 地址"
+[ -z "$IPV6" ] && IPV6="无 IPv6 地址"
+if [[ "$IPV4" != "无 IPv4 地址" ]]; then SHOW_IP=$IPV4; else SHOW_IP="[$IPV6]"; fi
+
+# --- 生成链接 ---
+# 节点1备注：主机名_Vision (代表 TCP Reality + Vision流控)
+LINK_VISION="vless://${UUID}@${SHOW_IP}:${PORT_VISION}?security=reality&encryption=none&pbk=${PUBLIC_KEY}&headerType=none&fp=chrome&type=tcp&flow=xtls-rprx-vision&sni=${SNI_HOST}&sid=${SHORT_ID}#${HOST_NAME}_Vision"
+
+# 节点2备注：主机名_xhttp (代表 xhttp协议)
+LINK_XHTTP="vless://${UUID}@${SHOW_IP}:${PORT_XHTTP}?security=reality&encryption=none&pbk=${PUBLIC_KEY}&headerType=none&fp=chrome&type=xhttp&path=${XHTTP_PATH}&sni=${SNI_HOST}&sid=${SHORT_ID}#${HOST_NAME}_xhttp"
+
+# --- 输出显示 ---
+clear
+echo -e "=========================================================="
+echo -e "${YELLOW}🚀 Xray 配置详情 ${PLAIN}"
+echo -e "=========================================================="
+echo -e "  服务器名     : ${GREEN}${HOST_NAME}${PLAIN}"
+echo -e "  IPv4 地址    : ${GREEN}${IPV4}${PLAIN}"
+echo -e "  IPv6 地址    : ${GREEN}${IPV6}${PLAIN}"
+echo -e "  伪装域SNI    : ${GREEN}${SNI_HOST}${PLAIN}"
+echo -e "  UUID         : ${BLUE}${UUID}${PLAIN}"
+echo -e "  Short ID     : ${BLUE}${SHORT_ID}${PLAIN}"
+echo -e "  Public Key   : ${BLUE}${PUBLIC_KEY}${PLAIN}"
+echo -e "  Private Key  : ${RED}${PRIVATE_KEY}${PLAIN} (服务端用)"
+echo -e "----------------------------------------------------------"
+echo -e "  ${YELLOW}节点 1 (Vision)${PLAIN}  端口: ${GREEN}${PORT_VISION}${PLAIN}    流控: ${GREEN}xtls-rprx-vision${PLAIN}"
+echo -e "  ${YELLOW}节点 2 (xhttp) ${PLAIN}  端口: ${GREEN}${PORT_XHTTP}${PLAIN}   协议: ${GREEN}xhttp${PLAIN}   路径: ${GREEN}${XHTTP_PATH}${PLAIN}"
+echo -e "----------------------------------------------------------"
+echo -e "${YELLOW}👇 节点 1 (Vision) 链接:${PLAIN}"
+echo -e "${LINK_VISION}"
+echo -e ""
+echo -e "${YELLOW}👇 节点 2 (xhttp) 链接:${PLAIN}"
+echo -e "${LINK_XHTTP}"
+echo -e "=========================================================="
+echo -e "\n📱 手机扫码功能"
+read -p "   是否显示二维码? (y/n) [默认 n]: " CHOICE
+if [[ "$CHOICE" == "y" || "$CHOICE" == "Y" ]]; then
+    echo -e "\n${YELLOW}>>> 正在生成 Vision 节点二维码...${PLAIN}"
+    qrencode -t ANSIUTF8 "${LINK_VISION}"
+    echo -e "\n${YELLOW}>>> 正在生成 xhttp 节点二维码...${PLAIN}"
+    qrencode -t ANSIUTF8 "${LINK_XHTTP}"
+fi
+echo ""
+SCRIPT_EOF
 chmod +x /usr/local/bin/info
 
-# 完成
-bash /usr/local/bin/info
-echo -e ""
-echo -e "🎉 \033[32m安装完成！\033[0m"
-echo -e "💡 命令：\033[33minfo\033[0m (查看信息) | \033[33mmode\033[0m (切换模式)"
+# Mode 脚本
+cat > /usr/local/bin/mode << 'MODE_EOF'
+#!/bin/bash
+GREEN='\033[32m'; RED='\033[31m'; YELLOW='\033[33m'; BLUE='\033[36m'; PLAIN='\033[0m'
+CONFIG="/usr/local/etc/xray/config.json"
+BLOCK_CFG="/usr/local/etc/xray/config_block.json"
+ALLOW_CFG="/usr/local/etc/xray/config_allow.json"
+if grep -q "geoip:cn" "$CONFIG"; then
+    OPT_1="${GREEN}1. 阻断国内流量 (Block CN) [✅ 当前]${PLAIN}"
+    OPT_2="2. 允许国内流量 (Allow CN)"
+else
+    OPT_1="1. 阻断国内流量 (Block CN)"
+    OPT_2="${RED}2. 允许国内流量 (Allow CN) [⚠️ 当前]${PLAIN}"
+fi
+clear
+echo -e "${BLUE}============================================${PLAIN}"
+echo -e "${YELLOW}       Xray 路由模式切换 (Mode Switch)${PLAIN}"
+echo -e "${BLUE}============================================${PLAIN}"
+echo -e "$OPT_1"
+echo -e "$OPT_2"
+echo -e "${BLUE}--------------------------------------------${PLAIN}"
+read -p "请输入选项 [1-2] (其他键退出): " choice
+case "$choice" in
+    1) cp "$BLOCK_CFG" "$CONFIG"; systemctl restart xray; echo -e "\n${GREEN}✅ 已切换为: 阻断国内流量${PLAIN}";;
+    2) cp "$ALLOW_CFG" "$CONFIG"; systemctl restart xray; echo -e "\n${RED}⚠️  已切换为: 允许国内流量${PLAIN}";;
+    *) echo "已退出，未做更改。"; exit 0;;
+esac
+MODE_EOF
+chmod +x /usr/local/bin/mode
 
+systemctl enable xray >/dev/null 2>&1
+if systemctl restart xray; then
+    bash /usr/local/bin/info
+    echo -e "\n🎉 安装全部完成！"
+    echo -e "💡 常用命令: ${YELLOW}info${PLAIN} (查看信息) | ${YELLOW}mode${PLAIN} (切换流控模式)"
+else
+    echo -e "${RED}${ICON_ERR} Xray 服务启动失败！${PLAIN}"
+    echo -e "请运行: systemctl status xray 查看错误日志"
+    exit 1
+fi
