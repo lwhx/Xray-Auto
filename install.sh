@@ -486,6 +486,14 @@ esac
 MODE_EOF
 chmod +x /usr/local/bin/mode
 
+echo -ne "${BLUE}⏰ 正在设置自动更新 geoip, geosite 任务 (每周日 4:00)...${PLAIN}"
+
+UPDATE_CMD="systemctl stop xray; wget -q -O /usr/local/share/xray/geoip.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat; wget -q -O /usr/local/share/xray/geosite.dat https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat; systemctl restart xray"
+
+(crontab -l 2>/dev/null | grep -v "geosite.dat"; echo "0 4 * * 0 $UPDATE_CMD") | crontab -
+
+echo -e "${GREEN} 完成${PLAIN}"
+
 systemctl enable xray >/dev/null 2>&1
 if systemctl restart xray; then
     bash /usr/local/bin/info
