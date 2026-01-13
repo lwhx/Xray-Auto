@@ -1,6 +1,6 @@
-# 🚀 Xray-Auto Installer (v0.4)
+# 🚀 Xray-Auto Installer
 
-![Version](https://img.shields.io/badge/version-0.4-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.0-blue?style=flat-square)
 ![Language](https://img.shields.io/badge/language-Bash-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)
 ![Core](https://img.shields.io/badge/core-Xray-0066CC?style=flat-square&logo=telegram&logoColor=white)
 ![Network](https://img.shields.io/badge/network-IPv4%2FIPv6-orange?style=flat-square)
@@ -25,7 +25,7 @@
     * 集成 `Fail2ban`，防止 SSH 暴力破解。
 * **📱 贴心工具箱**:
     * `info`：支持动态 IP 显示，提供**交互式二维码**生成（按需显示，不刷屏）。
-    * `mode`：一键切换 **阻断回国流量** 或 **允许回国流量**，状态栏带高亮显示。
+    * `ports`：修改 SSH 等端口。
     * `net`：一键切换 **ipv4/ipv6**。
 
 ### 🛠️ 环境要求
@@ -55,7 +55,7 @@ bash <(curl -sL https://github.com/ISFZY/Xray-Auto/raw/main/remove.sh)
 | 指令 | 功能 | 说明 |
 | --- | --- | --- |
 | `info` | 查询Xray配置信息 | * 查看当前的 IP、端口、UUID、伪装域名等信息。* 运行后输入 `y` 可在终端生成巨大的二维码供手机扫描。|
-| `mode` | 切换路由模式 | 1. **阻断国内流量 (Block CN)**: [默认/推荐] 禁止访问中国大陆 IP。2. **允许国内流量 (Allow CN)**: 允许访问国内 IP。|
+| `ports` | 修改端口 | 1. SSH 2. Vision 3. xhttp |
 | `net` | 切换网络 | 1. **IPv4 优先**: 推荐, 兼容性最好。2. **IPv6 优先**: 适合 IPv6 线路优秀的机器。3. **仅 IPv4**: 强制 Xray 只用 IPv4 。4. **仅 IPv6**: 强制 Xray 只用 IPv6。 |
 
 ### 📝 客户端配置参考
@@ -91,7 +91,7 @@ bash <(curl -sL https://github.com/ISFZY/Xray-Auto/raw/main/remove.sh)
     * Integrated `Fail2ban` to prevent SSH brute-force attacks.
 * **📱 Handy Tools**:
     * `info`: View config, dynamic IP detection, and generate **QR Codes**.
-    * `mode`: One-click switch between **Block CN Traffic** and **Allow CN Traffic**.
+    * `ports`: Change ports.
     * `net`：One-click switch between **ipv4/ipv6**.
 
 ### 🛠️ Requirements
@@ -122,7 +122,7 @@ Xray Management Commands
 | Command | Function | Description |
 |---|---|---|
 | 'info' | View Xray Config Info | • View current IP, Port, UUID, Camouflage Domain, etc.• After running, type y to generate a large QR code in the terminal for scanning with a mobile phone. |
-| 'mode' | Switch Routing Mode | 1. Block CN Traffic (Block CN): [Default/Recommended] Blocks access to Mainland China IPs.2. Allow CN Traffic (Allow CN): Allows access to Mainland China IPs. |
+| `ports` | change Ports | 1. SSH 2. Vision 3. xhttp |
 | 'net' | Switch Network | 1. **IPv4 Priority**: Recommended, best compatibility. 2. **IPv6 Priority**: Suitable for servers with excellent IPv6 connections.3. **IPv4 Only**: Forces Xray to use IPv4 only.4. **IPv6 Only**: Forces Xray to use IPv6 only. |
 
 
