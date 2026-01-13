@@ -334,7 +334,8 @@ done
 
 # 安装 Xray
 mkdir -p /usr/local/share/xray/
-CMD_XRAY='bash -c "$(curl -L '$CURL_OPT' https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --without-geodata'
+CMD_XRAY='bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --without-geodata'
+execute_task "$CMD_XRAY" "安装 Xray Core"
 
 echo -e "${OK}   基础组件安装完毕。\n"
 
