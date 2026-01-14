@@ -1194,7 +1194,7 @@ unban_ip() {
     echo -e "\n${BLUE}--- 手动解封 IP (Unban Manager) ---${PLAIN}"
     
     # 获取被封禁列表
-    # 原始输出包含 "Banned IP list: IP1 IP2 ...", 我们提取冒号后面的部分
+    # 原始输出包含 "Banned IP list: IP1 IP2 ...", 提取冒号后面的部分
     local banned_list=$(fail2ban-client status sshd 2>/dev/null | grep "Banned IP list" | awk -F':' '{print $2}' | sed 's/^[ \t]*//')
     
     # 如果列表为空或全是空格
@@ -1265,7 +1265,7 @@ view_logs() {
             
             # 2. 对齐 PID 字段 (识别类似 [12345]: 的列)
             if ($4 ~ /^\[.*\]:$/) {
-                # 右对齐，宽度设为 9 (根据您的截图，PID通常5-6位，9足够容纳)
+                # 右对齐，宽度设为 9
                 $4 = sprintf("%9s", $4)
             }
             
