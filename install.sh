@@ -1244,8 +1244,23 @@ add_whitelist() {
 }
 
 view_logs() {
-    clear; echo -e "${BLUE}=== 封禁日志 (最近20条) ===${PLAIN}"
-    grep "Ban" /var/log/fail2ban.log 2>/dev/null | tail -n 20 || echo "暂无日志"
+    clear
+    echo -e "${BLUE}=== 系统封禁/解封历史 (Audit Log) ===${PLAIN}"
+    echo -e "日志来源: ${GRAY}/var/log/fail2ban.log${PLAIN}"
+    echo -e "---------------------------------------------------"
+
+    if [ ! -f /var/log/fail2ban.log ]; then
+        echo -e "${YELLOW}暂无日志文件 (服务可能刚安装)。${PLAIN}"
+    else
+        # 1. 同时搜索 Ban 和 Unban
+        # 2. 取最后 20 条
+        # 3. 使用 sed 给关键字上色: Ban变红, Unban变绿
+        grep -E "(Ban|Unban)" /var/log/fail2ban.log 2>/dev/null | tail -n 20 | \
+        sed -e "s/Ban/${RED}Ban${PLAIN}/g" \
+            -e "s/Unban/${GREEN}Unban${PLAIN}/g"
+    fi
+    
+    echo -e "---------------------------------------------------"
     read -n 1 -s -r -p "按任意键退出..."
 }
 
