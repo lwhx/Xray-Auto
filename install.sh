@@ -883,144 +883,174 @@ RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; BLUE="\033[36m"; PLAIN="\03
 
 CONFIG_FILE="/usr/local/etc/xray/config.json"
 GAI_CONF="/etc/gai.conf"
+SYSCTL_CONF="/etc/sysctl.conf"
 
-# 检查依赖
-if ! command -v jq &> /dev/null; then
-    echo -e "${RED}错误: 缺少 jq 依赖。${PLAIN}"; exit 1
-fi
+if ! command -v jq &> /dev/null; then echo -e "${RED}错误: 缺少 jq。${PLAIN}"; exit 1; fi
 
 # --- 核心辅助函数 ---
 
-# 1. 连通性自检 (防止纯v6机器切v4导致失联)
+# 1. 连通性自检 (防止配置错误导致失联)
 check_connectivity() {
     local target_ver=$1
     echo -e "${BLUE}正在检测 ${target_ver} 连通性...${PLAIN}"
-    
     if [ "$target_ver" == "v4" ]; then
-        # Ping 谷歌 DNS 检测 v4
         if curl -s4m 2 https://1.1.1.1 >/dev/null 2>&1; then return 0; fi
     elif [ "$target_ver" == "v6" ]; then
-        # Ping 谷歌 IPv6 检测 v6
         if curl -s6m 2 https://2606:4700:4700::1111 >/dev/null 2>&1; then return 0; fi
     fi
     return 1
 }
 
-# 2. 设置系统级优先级 (gai.conf) - 影响 curl/apt 等
-set_system_prio() {
-    [ ! -f "$GAI_CONF" ] && touch "$GAI_CONF"
-    # 先清理旧规则
-    sed -i '/^precedence ::ffff:0:0\/96  100/d' "$GAI_CONF"
-    
-    if [ "$1" == "v4" ]; then
-        echo "precedence ::ffff:0:0/96  100" >> "$GAI_CONF"
+# 2. 检查当前 SSH 连接方式 (防自杀核心)
+check_ssh_connection() {
+    # 获取当前 SSH 连接的客户端 IP
+    local client_ip=$(echo $SSH_CLIENT | awk '{print $1}')
+    if [[ "$client_ip" =~ : ]]; then
+        echo "v6" # 当前是 IPv6 连接
+    else
+        echo "v4" # 当前是 IPv4 连接
     fi
 }
 
-# 3. 应用策略
-apply_strategy() {
-    local sys_prio=$1      # v4 或 v6 (影响系统)
-    local xray_strategy=$2 # IPIfNonMatch, UseIPv4, UseIPv6 (影响 Xray)
-    local desc=$3
-    local check_type=$4    # v4, v6, or any
-
-    # --- 安全检查 ---
-    if [ "$check_type" != "any" ]; then
-        if ! check_connectivity "$check_type"; then
-            echo -e "${RED}[危险] 检测到本机不支持 ${check_type} 网络！${PLAIN}"
-            echo -e "${YELLOW}强行切换会导致节点失联。操作已取消。${PLAIN}"
+# 3. 内核级 IPv6 开关
+toggle_system_ipv6() {
+    local state=$1 # on 或 off
+    
+    if [ "$state" == "off" ]; then
+        # [安全检查] 如果当前 SSH 是 v6 连进来的，禁止关闭 v6！
+        if [ "$(check_ssh_connection)" == "v6" ]; then
+            echo -e "${RED}[危险操作拦截]${PLAIN}"
+            echo -e "${YELLOW}检测到您当前正在通过 IPv6 连接 SSH！${PLAIN}"
+            echo -e "${YELLOW}若此时系统级禁用 IPv6，您将立即断开连接且无法重连！${PLAIN}"
+            echo -e "${RED}操作已取消。请切换到 IPv4 网络连接 SSH 后再试。${PLAIN}"
             read -n 1 -s -r -p "按任意键返回..."
-            return
+            return 1
         fi
+
+        echo -e "${YELLOW}正在系统级禁用 IPv6 (sysctl)...${PLAIN}"
+        sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null
+        sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null
+        # 持久化
+        sed -i '/net.ipv6.conf.all.disable_ipv6/d' "$SYSCTL_CONF"
+        echo "net.ipv6.conf.all.disable_ipv6 = 1" >> "$SYSCTL_CONF"
+    else
+        echo -e "${GREEN}正在恢复系统级 IPv6...${PLAIN}"
+        sysctl -w net.ipv6.conf.all.disable_ipv6=0 >/dev/null
+        sysctl -w net.ipv6.conf.default.disable_ipv6=0 >/dev/null
+        # 移除持久化屏蔽
+        sed -i '/net.ipv6.conf.all.disable_ipv6/d' "$SYSCTL_CONF"
     fi
-    
-    echo -e "${BLUE}正在配置: ${desc}...${PLAIN}"
-    
-    # 修改系统优先级
-    set_system_prio "$sys_prio"
-    
-    # 修改 Xray 配置
+    return 0
+}
+
+# 4. 设置系统优先级 (gai.conf)
+set_system_prio() {
+    [ ! -f "$GAI_CONF" ] && touch "$GAI_CONF"
+    sed -i '/^precedence ::ffff:0:0\/96  100/d' "$GAI_CONF"
+    if [ "$1" == "v4" ]; then echo "precedence ::ffff:0:0/96  100" >> "$GAI_CONF"; fi
+}
+
+# 5. 应用策略总控
+apply_strategy() {
+    local sys_action=$1    # v4_only, v6_only, v4_prio, v6_prio
+    local xray_strategy=$2 # IPIfNonMatch, UseIPv4, UseIPv6
+    local desc=$3
+
+    # --- 1. 执行系统级变更 ---
+    if [ "$sys_action" == "v4_only" ]; then
+        # 尝试关闭系统 IPv6，如果被安全拦截则停止
+        if ! toggle_system_ipv6 "off"; then return; fi
+        set_system_prio "v4"
+        
+    elif [ "$sys_action" == "v6_only" ]; then
+        # 警告：不能关闭系统 v4
+        echo -e "${WARN} 提示：为防止 SSH 失联，系统级 IPv4 将保持开启，仅在 Xray 层强制 IPv6。${PLAIN}"
+        toggle_system_ipv6 "on" # 确保 v6 是开的
+        set_system_prio "v6"    # 让系统偏好 v6
+        
+    else
+        # 双栈模式：确保 v6 是开的
+        toggle_system_ipv6 "on"
+        if [ "$sys_action" == "v4_prio" ]; then set_system_prio "v4"; else set_system_prio "v6"; fi
+    fi
+
+    # --- 2. 连通性复查 ---
+    # 如果强制 v4，但机器根本没有 v4 (ping不通)，则回滚
+    if [ "$xray_strategy" == "UseIPv4" ] && ! check_connectivity "v4"; then
+        echo -e "${RED}错误：本机无法连接 IPv4 网络，无法执行纯 IPv4 策略！${PLAIN}"
+        toggle_system_ipv6 "on" # 回滚
+        read -n 1 -s -r; return
+    fi
+
+    # --- 3. 修改 Xray 配置 ---
+    echo -e "${BLUE}正在配置 Xray 策略...${PLAIN}"
     jq --arg s "$xray_strategy" '.routing.domainStrategy = $s' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
     
     echo -e "${INFO} 重启 Xray 服务..."
     systemctl restart xray
     
-    # 验证 Xray 是否存活
     if systemctl is-active --quiet xray; then
-        echo -e "${GREEN}设置成功！Xray 已正常重启。${PLAIN}"
-        echo -e "当前策略: ${YELLOW}${desc}${PLAIN}"
+        echo -e "${GREEN}设置成功！当前运行模式: ${YELLOW}${desc}${PLAIN}"
     else
-        echo -e "${RED}警告：Xray 重启失败！可能是配置错误。${PLAIN}"
-        echo -e "正在尝试回滚..."
-        # 简单回滚到自动模式
+        echo -e "${RED}Xray 重启失败！正在自动回滚到默认模式...${PLAIN}"
+        toggle_system_ipv6 "on"
         jq '.routing.domainStrategy = "IPIfNonMatch"' "$CONFIG_FILE" > "${CONFIG_FILE}.tmp" && mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
         systemctl restart xray
     fi
-    
     read -n 1 -s -r -p "按任意键继续..."
 }
 
-# 4. 状态显示
+# 状态显示
 get_current_status() {
-    if [ -f "$CONFIG_FILE" ]; then
-        CURRENT_STRATEGY=$(jq -r '.routing.domainStrategy // "Unknown"' "$CONFIG_FILE")
+    if [ -f "$CONFIG_FILE" ]; then CURRENT_STRATEGY=$(jq -r '.routing.domainStrategy // "Unknown"' "$CONFIG_FILE"); else CURRENT_STRATEGY="Error"; fi
+    
+    # 检查内核参数
+    if [ "$(sysctl -n net.ipv6.conf.all.disable_ipv6 2>/dev/null)" -eq 1 ]; then
+        SYS_V6_STATUS="${RED}已禁用${PLAIN}"
     else
-        CURRENT_STRATEGY="Error"
+        SYS_V6_STATUS="${GREEN}启用${PLAIN}"
     fi
 
-    if grep -q "^precedence ::ffff:0:0/96  100" "$GAI_CONF" 2>/dev/null; then
-        SYS_PRIO="IPv4 优先"
-    else
-        SYS_PRIO="IPv6 优先"
-    fi
-    
     # 状态映射
     MARK_1=" "; MARK_2=" "; MARK_3=" "; MARK_4=" "
     case "$CURRENT_STRATEGY" in
-        "UseIPv4")
-            STATUS_TEXT="${YELLOW}仅 IPv4 (IPv4 Only)${PLAIN}"
-            MARK_3="${GREEN}●${PLAIN}" ;;
-        "UseIPv6")
-            STATUS_TEXT="${YELLOW}仅 IPv6 (IPv6 Only)${PLAIN}"
-            MARK_4="${GREEN}●${PLAIN}" ;;
+        "UseIPv4") STATUS_TEXT="${YELLOW}仅 IPv4${PLAIN} (系统 IPv6: ${SYS_V6_STATUS})"; MARK_3="${GREEN}●${PLAIN}" ;;
+        "UseIPv6") STATUS_TEXT="${YELLOW}仅 IPv6${PLAIN} (系统 IPv4: 保持启用)"; MARK_4="${GREEN}●${PLAIN}" ;;
         *)
-            if [ "$SYS_PRIO" == "IPv4 优先" ]; then
-                STATUS_TEXT="${GREEN}双栈 (系统偏好 v4)${PLAIN}"
-                MARK_1="${GREEN}●${PLAIN}"
+            if grep -q "^precedence ::ffff:0:0/96  100" "$GAI_CONF" 2>/dev/null; then
+                STATUS_TEXT="${GREEN}双栈 - v4 优先${PLAIN}"; MARK_1="${GREEN}●${PLAIN}"
             else
-                STATUS_TEXT="${GREEN}双栈 (系统偏好 v6)${PLAIN}"
-                MARK_2="${GREEN}●${PLAIN}"
+                STATUS_TEXT="${GREEN}双栈 - v6 优先${PLAIN}"; MARK_2="${GREEN}●${PLAIN}"
             fi ;;
     esac
 }
 
 # --- 交互菜单 ---
-
 while true; do
     get_current_status
     clear
     echo -e "${BLUE}===================================================${PLAIN}"
     echo -e "${BLUE}          网络优先级切换 (Network Priority)       ${PLAIN}"
     echo -e "${BLUE}===================================================${PLAIN}"
-    echo -e "  Xray 当前策略: ${STATUS_TEXT}"
+    echo -e "  当前状态: ${STATUS_TEXT}"
     echo -e "---------------------------------------------------"
-    echo -e "  [双栈模式 - 自动分流]"
-    echo -e "  ${MARK_1} 1. IPv4 优先 (系统)   ${GRAY}- 适合大多数双栈 VPS${PLAIN}"
-    echo -e "  ${MARK_2} 2. IPv6 优先 (系统)   ${GRAY}- 适合 IPv6 线路更好的 VPS${PLAIN}"
+    echo -e "  [双栈模式 - 系统级排序]"
+    echo -e "  ${MARK_1} 1. IPv4 优先   ${GRAY}- 推荐，系统 IPv6 保持开启${PLAIN}"
+    echo -e "  ${MARK_2} 2. IPv6 优先   ${GRAY}- 系统 IPv6 保持开启${PLAIN}"
     echo -e "---------------------------------------------------"
-    echo -e "  [强制模式 - 解决 Google 验证码/解锁]"
-    echo -e "  ${MARK_3} 3. 仅 IPv4            ${GRAY}- 强制 Xray 只用 IPv4 出口${PLAIN}"
-    echo -e "  ${MARK_4} 4. 仅 IPv6            ${GRAY}- 强制 Xray 只用 IPv6 出口${PLAIN}"
+    echo -e "  [强制模式 - 系统级开关]"
+    echo -e "  ${MARK_3} 3. 仅 IPv4     ${GRAY}- ${RED}彻底禁用系统 IPv6${GRAY} + Xray 仅 v4${PLAIN}"
+    echo -e "  ${MARK_4} 4. 仅 IPv6     ${GRAY}- 系统 v4 保持开启 + Xray 仅 v6${PLAIN}"
     echo -e "---------------------------------------------------"
-    echo -e "  0. 退出 (Exit)"
+    echo -e "  0. 退出"
     echo -e ""
     read -p "请输入选项 [0-4]: " choice
 
     case "$choice" in
-        1) apply_strategy "v4" "IPIfNonMatch" "IPv4 优先 (系统级)" "any" ;;
-        2) apply_strategy "v6" "IPIfNonMatch" "IPv6 优先 (系统级)" "any" ;;
-        3) apply_strategy "v4" "UseIPv4"      "仅 IPv4 (Xray 强制)" "v4" ;;
-        4) apply_strategy "v6" "UseIPv6"      "仅 IPv6 (Xray 强制)" "v6" ;;
+        1) apply_strategy "v4_prio" "IPIfNonMatch" "IPv4 优先 (双栈)" ;;
+        2) apply_strategy "v6_prio" "IPIfNonMatch" "IPv6 优先 (双栈)" ;;
+        3) apply_strategy "v4_only" "UseIPv4"      "纯 IPv4 模式 (系统级禁用 v6)" ;;
+        4) apply_strategy "v6_only" "UseIPv6"      "纯 IPv6 模式 (Xray 强制)" ;;
         0) exit 0 ;;
         *) echo -e "${RED}输入无效${PLAIN}"; sleep 1 ;;
     esac
