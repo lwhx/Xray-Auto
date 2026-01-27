@@ -1,6 +1,6 @@
 # 🚀 Xray-Auto Installer
 
-![Version](https://img.shields.io/badge/version-1.0-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.0.2-blue?style=flat-square)
 ![Language](https://img.shields.io/badge/language-Bash-4EAA25?style=flat-square&logo=gnu-bash&logoColor=white)
 ![Core](https://img.shields.io/badge/core-Xray-0066CC?style=flat-square&logo=telegram&logoColor=white)
 ![Network](https://img.shields.io/badge/network-IPv4%2FIPv6-orange?style=flat-square)
